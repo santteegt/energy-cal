@@ -1,10 +1,10 @@
 package com.fitbank.billing.energy;
 
+import com.fitbank.billing.maintenance.SendDocumentSRI;
 import com.fitbank.common.ApplicationDates;
 
 import com.fitbank.common.Helper;
 import com.fitbank.dto.management.Detail;
-import com.fitbank.dto.management.Field;
 import com.fitbank.hb.persistence.billing.cBill.TcBill;
 import com.fitbank.hb.persistence.billing.cBill.TcBillKey;
 import com.fitbank.hb.persistence.billing.cBill.TcBillid;
@@ -31,6 +31,9 @@ import java.text.MessageFormat;
  */
 public class EnergyConsumptionBillingGenerator {
 
+    public static final int MAX_THREADS = 5;
+    public static int threads_counter = 0;
+
     public static void generateBillingRecord(Detail pDetail, Telectricservice pService, Telectricconsumption pConsumption,
                                              String documentType, String statusDoc,
                                              Tusercompany user, String pPeriod, String energyAccountItem,
@@ -38,11 +41,10 @@ public class EnergyConsumptionBillingGenerator {
 
         String serie = new BillingSequence().execute(pDetail);
 
-        procesBillRecord(pService, pConsumption, documentType, statusDoc, serie, pPeriod, cellar, user, billingPoint, energyAccountItem);
-
+        procesBillRecord(pDetail, pService, pConsumption, documentType, statusDoc, serie, pPeriod, cellar, user, billingPoint, energyAccountItem);
     }
 
-    private static void procesBillRecord(Telectricservice pService, Telectricconsumption pConsumption,
+    private static void procesBillRecord(Detail pDetail, Telectricservice pService, Telectricconsumption pConsumption,
                                          String documentType, String statusDoc, String serie, String pPeriod, String cellar,
                                          Tusercompany user, Trangebillingpoints billingPoint,
                                          String energyAccountItem) throws Exception {
@@ -90,16 +92,15 @@ public class EnergyConsumptionBillingGenerator {
 
         Helper.saveOrUpdate(bill);
 
-        processBillDetail(pService.getPk().getCpersona_compania(), docNumber, pPeriod, energyAccountItem, pConsumption);
+        TdBill dBill = processBillDetail(pService.getPk().getCpersona_compania(), docNumber, pPeriod, energyAccountItem, pConsumption);
 
         processBillQuota(pService.getPk().getCpersona_compania(), docNumber, pPeriod, pConsumption);
 
-
-
-
+        SendDocumentSRI sdsri = new SendDocumentSRI(pDetail, docNumber, pPeriod, user, pConsumption, pService.getIdentificacion(), dBill);
+        sdsri.start();
     }
 
-    private static void processBillDetail(Integer pCia, String docNumber, String pPeriod, String energyAccountItem,
+    private static TdBill processBillDetail(Integer pCia, String docNumber, String pPeriod, String energyAccountItem,
                                    Telectricconsumption pConsumption) throws Exception {
 
         TdBillKey dBillPk = new TdBillKey(pCia, docNumber, pPeriod, energyAccountItem, ApplicationDates.DEFAULT_EXPIRY_TIMESTAMP);
@@ -111,7 +112,7 @@ public class EnergyConsumptionBillingGenerator {
         dBill.setTotal(pConsumption.getTotal());
 
         Helper.saveOrUpdate(dBill);
-
+        return dBill;
     }
 
     private static void processBillQuota(Integer pCia, String docNumber, String pPeriod,
@@ -130,6 +131,5 @@ public class EnergyConsumptionBillingGenerator {
         Helper.saveOrUpdate(quota);
 
     }
-
 
 }
