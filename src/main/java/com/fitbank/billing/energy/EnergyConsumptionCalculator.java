@@ -4,7 +4,6 @@ import com.fitbank.common.ApplicationDates;
 import com.fitbank.common.Helper;
 import com.fitbank.common.exception.FitbankException;
 import com.fitbank.hb.persistence.billing.elec.Telectricconsumption;
-import com.fitbank.hb.persistence.billing.elec.TelectricserviceKey;
 import com.fitbank.hb.persistence.billing.elec.Telectricservice;
 import com.fitbank.hb.persistence.billing.elec.TelectricparametersKey;
 import com.fitbank.hb.persistence.billing.elec.Telectricparameters;

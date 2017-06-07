@@ -21,9 +21,14 @@ import java.math.BigDecimal;
 
 /**
  * Clase que envia documentos al sri
+ *
  * @author SoftWare House S.A.
  */
-public class SendDocumentSRI extends Thread{
+public class SendDocumentSRI extends Thread {
+
+    public static final int MAX_THREADS = 5;
+    public static int threads_counter = 0;
+
     private final Detail pDetail;
     private final String docNumber;
     private final String pPeriod;
@@ -54,7 +59,7 @@ public class SendDocumentSRI extends Thread{
     
     @Override
     public void run() {
-        if(EnergyConsumptionBillingGenerator.threads_counter >= EnergyConsumptionBillingGenerator.MAX_THREADS) {
+        if(SendDocumentSRI.threads_counter >= SendDocumentSRI.MAX_THREADS) {
             try {
                 Thread.sleep(this.DELAY);
             } catch(Exception e) {
@@ -64,7 +69,7 @@ public class SendDocumentSRI extends Thread{
             return;
         }
 
-        EnergyConsumptionBillingGenerator.threads_counter++;
+        SendDocumentSRI.threads_counter++;
         try {
             Helper.setSession(HbSession.getInstance().openSession());
             Helper.beginTransaction();
@@ -108,7 +113,7 @@ public class SendDocumentSRI extends Thread{
         } catch (Exception ex) {
             throw new FitbankException("ERR0001", "ERROR AL ENVIAR LA FACTURA DEL SERVICIO {0}", ex, pConsumption.getPk().getCservicio());
         } finally {
-            EnergyConsumptionBillingGenerator.threads_counter--;
+            SendDocumentSRI.threads_counter--;
             Helper.commitTransaction();
             Helper.closeSession();
         } 

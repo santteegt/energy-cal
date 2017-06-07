@@ -1,15 +1,15 @@
 package com.fitbank.billing.maintenance;
 
 import com.fitbank.billing.energy.EnergyConsumptionBillingGenerator;
-import com.fitbank.billing.energy.EnergyConsumptionCalculator;
 import com.fitbank.billing.helper.BillingHelper;
 import com.fitbank.common.ApplicationDates;
 import com.fitbank.common.Helper;
+import com.fitbank.common.conectivity.HbSession;
 import com.fitbank.common.exception.FitbankException;
 import com.fitbank.common.hb.UtilHB;
+import com.fitbank.common.logger.FitbankLogger;
+import com.fitbank.dto.GeneralResponse;
 import com.fitbank.dto.management.Field;
-import com.fitbank.hb.persistence.billing.elec.Telectricservice;
-import com.fitbank.hb.persistence.billing.elec.TelectricserviceKey;
 import com.fitbank.hb.persistence.gene.Trangebillingpoints;
 import com.fitbank.hb.persistence.safe.Tusercompany;
 import com.fitbank.hb.persistence.safe.TusercompanyKey;
@@ -18,10 +18,10 @@ import com.fitbank.dto.management.Detail;
 import com.fitbank.hb.persistence.billing.elec.Telectricconsumption;
 import com.fitbank.common.helper.Dates;
 
-
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Calendar;
+
+import org.apache.log4j.Logger;
 
 /**
  * Genera los valores por consumo electrico en base a la ordenanza municipal
@@ -30,6 +30,11 @@ import java.util.Calendar;
  * @author SoftwareHouse S.A.
  */
 public class GenerateEnergyConsumptionValues extends MaintenanceCommand {
+
+    private static final Logger LOGGER = FitbankLogger.getLogger();
+
+    public static final int MAX_THREADS = 5;
+    public static int threads_counter = 0;
 
     private static final String HQL_ENERGY_CONSUMPTION = "from "
             + "com.fitbank.hb.persistence.billing.elec.Telectricconsumption tec "
@@ -83,47 +88,92 @@ public class GenerateEnergyConsumptionValues extends MaintenanceCommand {
                 .obtainAuthorization(userCompany.getCsucursal(), userCompany.getCpuntotrabajo(), documentType,
                         userCompany.getPk().getCpersona_compania());
 
-        List<Telectricconsumption> consummptionList = this.getConsumptionListToProcess();
+        BillingGeneratorThread thread = new BillingGeneratorThread(pDetail, documentType, statusDoc, userCompany, period,
+                energyAccountItem, trangebillingpoints, cellar);
+        thread.start();
 
-        for(Telectricconsumption consumption: consummptionList) {
-            Integer cia = consumption.getPk().getCpersona_compania();
-            String cServicio = consumption.getPk().getCservicio();
-            TelectricserviceKey servicePk = new TelectricserviceKey(cia, cServicio,
-                    ApplicationDates.DEFAULT_EXPIRY_TIMESTAMP);
-            Telectricservice service = Helper.getBean(Telectricservice.class, servicePk);
+        GeneralResponse generalResponse = new GeneralResponse("BILLE99",
+                "GENERACIÓN Y FACTURACIÓN DE CONSUMOS ELÉCTRICOS EN PROCESO ....");
 
-            if(service != null) {
-
-                BigDecimal total = EnergyConsumptionCalculator.calculateEnergyConsumption(service, consumption);
-                consumption.setTotal(total);
-                consumption.setFproceso(ApplicationDates.getDBDate());
-                Helper.saveOrUpdate(consumption);
-
-                EnergyConsumptionBillingGenerator.generateBillingRecord(pDetail, service, consumption,
-                        documentType, statusDoc, userCompany, period, energyAccountItem, trangebillingpoints, cellar);
-
-            } else {
-
-                throw new FitbankException("BILLE04","CODIGO {0} NO DEFINIDO EN LA TSERVICIOSELECTRICOS", cServicio);
-
-            }
-        }
+        pDetail.setResponse(generalResponse);
 
         return pDetail;
 
-    }
-
-    private List<Telectricconsumption> getConsumptionListToProcess() throws Exception {
-        UtilHB utilHB = new UtilHB(HQL_ENERGY_CONSUMPTION);
-        utilHB.setTimestamp("expireDate", ApplicationDates.DEFAULT_EXPIRY_TIMESTAMP);
-        utilHB.setString("status", STATUS_FILTER);
-
-        return utilHB.getList();
     }
 
     @Override
     public Detail executeReverse(Detail pDetail) throws Exception {
         return pDetail;
+    }
+
+    private class BillingGeneratorThread extends Thread {
+
+        private List<Telectricconsumption> consumptionList;
+
+        private Detail pDetail;
+        private String documentType;
+        private String statusDoc;
+        private Tusercompany userCompany;
+        private String pPeriod;
+        private String energyAccountItem;
+        private Trangebillingpoints billingPoint;
+        private String cellar;
+
+        public BillingGeneratorThread(Detail pDetail, String documentType,
+                                      String statusDoc, Tusercompany user, String pPeriod, String energyAccountItem,
+                                      Trangebillingpoints billingPoint, String cellar) {
+
+            this.pDetail = pDetail;
+            this.documentType = documentType;
+            this.statusDoc = statusDoc;
+            this.pPeriod = pPeriod;
+            this.cellar = cellar;
+            this.userCompany = user;
+            this.billingPoint = billingPoint;
+            this.energyAccountItem = energyAccountItem;
+
+            LOGGER.info("Iniciando Billing Generator");
+
+
+        }
+
+        private List<Telectricconsumption> getConsumptionListToProcess() throws Exception {
+            UtilHB utilHB = new UtilHB(HQL_ENERGY_CONSUMPTION);
+            utilHB.setTimestamp("expireDate", ApplicationDates.DEFAULT_EXPIRY_TIMESTAMP);
+            utilHB.setString("status", STATUS_FILTER);
+
+            return utilHB.getList();
+        }
+
+        @Override
+        public void run() {
+
+            try {
+
+                Helper.setSession(HbSession.getInstance().openSession());
+                Helper.beginTransaction();
+
+                this.consumptionList = this.getConsumptionListToProcess();
+
+                LOGGER.info("Ejecutando Billing Generator para " + consumptionList.size() + " registros");
+
+                for(Telectricconsumption consumption: consumptionList) {
+
+                    EnergyConsumptionBillingGenerator.generateBillingRecord(pDetail, consumption,
+                            documentType, statusDoc, userCompany, pPeriod, energyAccountItem, billingPoint, cellar);
+
+                }
+                LOGGER.info("Terminando Billing Generator para " + consumptionList.size() + " registros");
+                Helper.commitTransaction();
+            } catch(Exception e) {
+                // TODO: manage errors while processing a register
+                Helper.rollbackTransaction();
+                LOGGER.info("ERROR Billing Generator: " + e.getMessage());
+            } finally {
+                Helper.closeSession();
+            }
+
+        }
     }
 
 }

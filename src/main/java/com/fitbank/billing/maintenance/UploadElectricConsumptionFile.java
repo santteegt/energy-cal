@@ -133,7 +133,7 @@ public class UploadElectricConsumptionFile extends MaintenanceCommand {
         TelectricconsumptionKey telectricconsumptionKey = new TelectricconsumptionKey(pDetail.getCompany(), code, new java.sql.Date(consumptionDate.getTime()), ApplicationDates.DEFAULT_EXPIRY_TIMESTAMP);
         Telectricconsumption telectricconsumption = Helper.getBean(Telectricconsumption.class, telectricconsumptionKey);
         if(telectricconsumption == null){
-            telectricconsumption = new Telectricconsumption(telectricconsumptionKey, ApplicationDates.getDBTimestamp(), consumption, "ING");
+            telectricconsumption = new Telectricconsumption(telectricconsumptionKey, consumption, ApplicationDates.getDBTimestamp(),"ING");
         }else{
             telectricconsumption.setFproceso(null);
             telectricconsumption.setTotal(null);
