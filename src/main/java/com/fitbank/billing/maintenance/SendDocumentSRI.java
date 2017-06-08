@@ -1,6 +1,5 @@
 package com.fitbank.billing.maintenance;
 
-import com.fitbank.billing.energy.EnergyConsumptionBillingGenerator;
 import com.fitbank.common.ApplicationDates;
 import com.fitbank.common.Helper;
 import com.fitbank.common.conectivity.HbSession;
@@ -24,16 +23,11 @@ import java.math.BigDecimal;
  *
  * @author SoftWare House S.A.
  */
-public class SendDocumentSRI extends Thread {
-
-    public static final int MAX_THREADS = 5;
-    public static int threads_counter = 0;
+public class SendDocumentSRI implements Runnable {
 
     private final Detail pDetail;
-    private final String docNumber;
-    private final String pPeriod;
     private final Tusercompany user;
-    private final Telectricconsumption pConsumption; 
+    private final Telectricconsumption telectricconsumption; 
     private final String identification;
     private final TdBill dBill;
     private static final String FACTURAELECTRONICA = "FacturaElectronica";
@@ -45,31 +39,28 @@ public class SendDocumentSRI extends Thread {
             + "from com.fitbank.hb.persistence.person.Tperson p "
             + "where p.identificacion = :identification and p.pk.fhasta = :expireDate";
     
-    public SendDocumentSRI(Detail pDetail, String docNumber, String pPeriod,
-                                         Tusercompany user, Telectricconsumption pConsumption, 
-                                         String identification, TdBill dBill){
+    public SendDocumentSRI(Detail pDetail, Tusercompany user, 
+            Telectricconsumption telectricconsumption, String identification, TdBill dBill){
         this.pDetail = pDetail;
-        this.docNumber = docNumber;
-        this.pPeriod = pPeriod;
         this.user = user;
-        this.pConsumption = pConsumption;
+        this.telectricconsumption = telectricconsumption;
         this.identification = identification;
         this.dBill = dBill;
     }
     
     @Override
     public void run() {
-        if(SendDocumentSRI.threads_counter >= SendDocumentSRI.MAX_THREADS) {
+        /*if(ProcessEnergyConsumptionValues.threads_counter >= ProcessEnergyConsumptionValues.MAX_THREADS) {
             try {
                 Thread.sleep(this.DELAY);
             } catch(Exception e) {
-                throw new FitbankException("ERR0001", "ERROR AL ENVIAR LA FACTURA DEL SERVICIO {0}", e, pConsumption.getPk().getCservicio());
+                throw new FitbankException("ERR0001", "ERROR AL ENVIAR LA FACTURA DEL SERVICIO {0}", e, telectricconsumption.getPk().getCservicio());
             }
             this.run();
             return;
         }
 
-        SendDocumentSRI.threads_counter++;
+        ProcessEnergyConsumptionValues.threads_counter++;*/
         try {
             Helper.setSession(HbSession.getInstance().openSession());
             Helper.beginTransaction();
@@ -80,9 +71,9 @@ public class SendDocumentSRI extends Thread {
             String str_field = PropertiesHandler.getConfig(FACTURAELECTRONICA).getString(docType + "campoDoc");
             Table headerTable = new Table(str_table, str_table);
             Record headerRecord = new Record(0);
-            headerRecord.addField(new Field(str_field, docNumber));
+            headerRecord.addField(new Field(str_field, telectricconsumption.getNumerodocumento()));
             headerRecord.addField(new Field("VALORDESCUENTO", new BigDecimal("0")));
-            headerRecord.addField(new Field("TOTALGENERAL", pConsumption.getTotal()));
+            headerRecord.addField(new Field("TOTALGENERAL", telectricconsumption.getTotal()));
             headerTable.addRecord(headerRecord);
             newDetail.addTable(headerTable);
             Table detailTable = new Table(TdBillKey.TABLE_NAME, TdBillKey.TABLE_NAME);
@@ -94,9 +85,9 @@ public class SendDocumentSRI extends Thread {
             newDetail.addTable(detailTable);
             newDetail.findFieldByNameCreate(TcBill.CPUNTOTRABAJO).setValue(user.getCpuntotrabajo());
             newDetail.findFieldByNameCreate("FECHA").setValue(pDetail.getAccountingDate());
-            newDetail.findFieldByNameCreate("TOTALSINDESC").setValue(pConsumption.getTotal());
+            newDetail.findFieldByNameCreate("TOTALSINDESC").setValue(telectricconsumption.getTotal());
             newDetail.findFieldByNameCreate("ID").setValue(identification);
-            newDetail.findFieldByNameCreate("_MONTO").setValue(pConsumption.getTotal());
+            newDetail.findFieldByNameCreate("_MONTO").setValue(telectricconsumption.getTotal());
             newDetail.findFieldByNameCreate("CPERSONA").setValue(getCperson(identification));
             newDetail.findFieldByNameCreate("NUMERODOCUMENTO").setValue(dBill.getPk().getNumerodocumento());
             newDetail.findFieldByNameCreate("FACTURAADIC");
@@ -105,17 +96,20 @@ public class SendDocumentSRI extends Thread {
             Table infoTable = new Table("TINFOADICIONAL", "TINFOADICIONAL");
             Record infoRecord = new Record(0);
             infoRecord.addField(new Field("NOMBRE", "CSERVICIO"));
-            infoRecord.addField(new Field("VALOR", pConsumption.getPk().getCservicio()));
+            infoRecord.addField(new Field("VALOR", telectricconsumption.getPk().getCservicio()));
             infoTable.addRecord(infoRecord);
             newDetail.addTable(infoTable);
+            this.telectricconsumption.setEstado("EMI");
+            Helper.saveOrUpdate(this.telectricconsumption);
             MaintenanceProcessor mp = new MaintenanceProcessor();
             mp.process(newDetail);
         } catch (Exception ex) {
-            throw new FitbankException("ERR0001", "ERROR AL ENVIAR LA FACTURA DEL SERVICIO {0}", ex, pConsumption.getPk().getCservicio());
+            throw new FitbankException("ERR0001", "ERROR AL ENVIAR LA FACTURA DEL SERVICIO {0}", ex, telectricconsumption.getPk().getCservicio());
         } finally {
-            SendDocumentSRI.threads_counter--;
             Helper.commitTransaction();
+            Helper.flushTransaction();
             Helper.closeSession();
+            //ProcessEnergyConsumptionValues.threads_counter--;
         } 
     }
     
