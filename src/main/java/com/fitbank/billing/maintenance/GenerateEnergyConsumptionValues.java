@@ -10,6 +10,8 @@ import com.fitbank.common.hb.UtilHB;
 import com.fitbank.common.logger.FitbankLogger;
 import com.fitbank.dto.GeneralResponse;
 import com.fitbank.dto.management.Field;
+import com.fitbank.hb.persistence.billing.FacPun.Tbillingpointsdoc;
+import com.fitbank.hb.persistence.billing.FacPun.TbillingpointsdocKey;
 import com.fitbank.hb.persistence.gene.Trangebillingpoints;
 import com.fitbank.hb.persistence.safe.Tusercompany;
 import com.fitbank.hb.persistence.safe.TusercompanyKey;
@@ -20,6 +22,8 @@ import com.fitbank.common.helper.Dates;
 
 import java.util.List;
 import java.util.Calendar;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.apache.log4j.Logger;
 
@@ -35,6 +39,8 @@ public class GenerateEnergyConsumptionValues extends MaintenanceCommand {
 
     public static final int MAX_THREADS = 5;
     public static int threads_counter = 0;
+
+    private ExecutorService executorService = Executors.newFixedThreadPool(MAX_THREADS);
 
     private static final String HQL_ENERGY_CONSUMPTION = "from "
             + "com.fitbank.hb.persistence.billing.elec.Telectricconsumption tec "
@@ -145,6 +151,71 @@ public class GenerateEnergyConsumptionValues extends MaintenanceCommand {
             return utilHB.getList();
         }
 
+        private Integer getSequence(Integer totalDocsToGenerate) throws Exception {
+
+            Integer sequence = 0;
+
+            TbillingpointsdocKey trbpdocKey=new TbillingpointsdocKey(pDetail.getCompany(),
+                    billingPoint.getPk().getCpuntotrabajo(), userCompany.getCsucursal(), documentType,
+                    ApplicationDates.DEFAULT_EXPIRY_TIMESTAMP);
+            Tbillingpointsdoc trbpdoc = Helper.getBean(Tbillingpointsdoc.class, trbpdocKey);
+            String isElectronic = trbpdoc.getElectronico() == null ? "1":trbpdoc.getElectronico();
+
+            if("1".equals(isElectronic)) {
+
+                if (this.billingPoint != null) {
+                    int vSerieDesde = this.getIntegerValue(this.billingPoint.getSeriedesde(), true);
+                    int vSerieHasta = this.getIntegerValue(this.billingPoint.getSeriehasta(), true);
+                    int vSerieActual = this.getIntegerValue(this.billingPoint.getSerieactual(), false);
+
+                    if (vSerieActual == 0) {
+                        vSerieActual = vSerieDesde - 1;
+                    }
+
+                    sequence = vSerieActual;
+
+                    if (vSerieHasta > vSerieActual + totalDocsToGenerate) {
+                        vSerieActual = vSerieActual + totalDocsToGenerate;
+                    } else {
+                        throw new FitbankException("BIL003", "NO HAY NÚMEROS DE FACTURA DISPONIBLES PARA ESTA SERIE", null);
+                    }
+                    this.billingPoint.setSerieactual(new Long(vSerieActual));
+                    try {
+                        Helper.saveOrUpdate(this.billingPoint);
+                    } catch (Exception e) {
+                        FitbankLogger.getLogger().error("NO SE PUDO GUARDAR EL BEAN " + Trangebillingpoints.TABLE_NAME, e);
+                    }
+                    return sequence;
+                } else {
+                    throw new FitbankException("BIL002", "NO EXISTEN SERIES DEFINIDAS PARA ESTE PUNTO DE TRABAJO", null);
+                }
+            } else {
+
+                String serieManual = pDetail.findFieldByName("SECUENCIAMANUAL").getStringValue();
+                if(serieManual==null) throw new FitbankException("BIL003", "INGRESE LA SECUENCIA MANUAL", null);
+
+                return Integer.valueOf(serieManual);
+
+            }
+
+
+        }
+
+        private int getIntegerValue(Long v, boolean error) throws Exception {
+            if (v == null) {
+                if (error) {
+                    throw new FitbankException("BIL001", "RANGO DE SERIES MAL DEFINIDA", null);
+                } else {
+                    return 0;
+                }
+            }
+            int newInt = v.intValue();
+            if (newInt <= 0) {
+                throw new FitbankException("BIL001", "RANGO DE SERIES MAL DEFINIDA", null);
+            }
+            return newInt;
+        }
+
         @Override
         public void run() {
 
@@ -155,12 +226,19 @@ public class GenerateEnergyConsumptionValues extends MaintenanceCommand {
 
                 this.consumptionList = this.getConsumptionListToProcess();
 
+                Integer serie = this.getSequence(this.consumptionList.size());
+
                 LOGGER.info("Ejecutando Billing Generator para " + consumptionList.size() + " registros");
 
                 for(Telectricconsumption consumption: consumptionList) {
 
-                    EnergyConsumptionBillingGenerator.generateBillingRecord(pDetail, consumption,
-                            documentType, statusDoc, userCompany, pPeriod, energyAccountItem, billingPoint, cellar);
+                    serie++;
+
+                    EnergyConsumptionBillingGenerator instance = new EnergyConsumptionBillingGenerator(pDetail,
+                            consumption, documentType, statusDoc, String.valueOf(serie), userCompany, pPeriod,
+                            energyAccountItem, billingPoint, cellar);
+
+                    executorService.execute(instance);
 
                 }
                 LOGGER.info("Terminando Billing Generator para " + consumptionList.size() + " registros");
