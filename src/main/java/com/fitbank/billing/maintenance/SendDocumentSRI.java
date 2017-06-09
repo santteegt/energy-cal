@@ -31,10 +31,7 @@ public class SendDocumentSRI implements Runnable {
     private final String identification;
     private final TdBill dBill;
     private static final String FACTURAELECTRONICA = "FacturaElectronica";
-    
-    private final int DELAY = 500; 
-    
-    
+        
     private static final String HQL_PERSON = "select p.pk.cpersona "
             + "from com.fitbank.hb.persistence.person.Tperson p "
             + "where p.identificacion = :identification and p.pk.fhasta = :expireDate";
@@ -103,10 +100,11 @@ public class SendDocumentSRI implements Runnable {
             Helper.saveOrUpdate(this.telectricconsumption);
             MaintenanceProcessor mp = new MaintenanceProcessor();
             mp.process(newDetail);
+            Helper.commitTransaction();
         } catch (Exception ex) {
+            Helper.rollbackTransaction();
             throw new FitbankException("ERR0001", "ERROR AL ENVIAR LA FACTURA DEL SERVICIO {0}", ex, telectricconsumption.getPk().getCservicio());
         } finally {
-            Helper.commitTransaction();
             Helper.flushTransaction();
             Helper.closeSession();
             //ProcessEnergyConsumptionValues.threads_counter--;
