@@ -69,7 +69,7 @@ public class UploadElectricConsumptionFile extends MaintenanceCommand {
         cft.start();
         
         GeneralResponse generalResponse = new GeneralResponse("BILLE99",
-                "GENERACIÓN Y FACTURACIÓN DE CONSUMOS ELÉCTRICOS EN PROCESO ....");
+                "CARGA DE ARCHIVO DE CONSUMOS ELÉCTRICOS EN PROCESO ....");
 
         pDetail.setResponse(generalResponse);
         return pDetail;
